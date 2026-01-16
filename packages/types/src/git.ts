@@ -121,6 +121,14 @@ export interface GitProvider {
   }): Promise<Diff>;
 
   /**
+   * Get number of commits branch is ahead of base branch
+   */
+  getCommitsAhead(params: {
+    baseBranch: string;
+    headBranch: string;
+  }): Promise<{ ahead: number; behind: number }>;
+
+  /**
    * Merge a pull request
    */
   mergePR(prNumber: number): Promise<void>;

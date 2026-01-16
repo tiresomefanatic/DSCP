@@ -72,23 +72,41 @@ export class GitHubProvider implements GitProvider {
   }
 
   async readFile(params: { branch: string; path: string }): Promise<string> {
-    const { data } = await this.octokit.repos.getContent({
+    // Use Git data API (refs/commits/trees/blobs) to avoid the 5-minute cache on the Contents API
+    const { data: ref } = await this.octokit.git.getRef({
       owner: this.owner,
       repo: this.repo,
-      path: params.path,
-      ref: params.branch,
+      ref: `heads/${params.branch}`,
     });
 
-    if (Array.isArray(data)) {
-      throw new Error(`Path ${params.path} is a directory, not a file`);
+    const { data: commit } = await this.octokit.git.getCommit({
+      owner: this.owner,
+      repo: this.repo,
+      commit_sha: ref.object.sha,
+    });
+
+    const { data: tree } = await this.octokit.git.getTree({
+      owner: this.owner,
+      repo: this.repo,
+      tree_sha: commit.tree.sha,
+      recursive: 'true',
+    });
+
+    const entry = tree.tree?.find(
+      (item): item is { path: string; type: 'blob'; sha: string } =>
+        item.path === params.path && item.type === 'blob' && typeof item.sha === 'string'
+    );
+    if (!entry) {
+      throw new Error(`Path ${params.path} not found in branch ${params.branch}`);
     }
 
-    if (data.type !== 'file' || !('content' in data)) {
-      throw new Error(`Path ${params.path} is not a file`);
-    }
+    const { data: blob } = await this.octokit.git.getBlob({
+      owner: this.owner,
+      repo: this.repo,
+      file_sha: entry.sha,
+    });
 
-    // Content is base64 encoded
-    return Buffer.from(data.content, 'base64').toString('utf-8');
+    return Buffer.from(blob.content, 'base64').toString('utf-8');
   }
 
   async writeFile(params: {
@@ -127,6 +145,10 @@ export class GitHubProvider implements GitProvider {
       branch: params.branch,
       sha,
     });
+
+    if (!data.commit.sha) {
+      throw new Error('Commit SHA missing from GitHub response');
+    }
 
     return {
       sha: data.commit.sha,
@@ -216,6 +238,23 @@ export class GitHubProvider implements GitProvider {
     };
   }
 
+  async getCommitsAhead(params: {
+    baseBranch: string;
+    headBranch: string;
+  }): Promise<{ ahead: number; behind: number }> {
+    const { data } = await this.octokit.repos.compareCommits({
+      owner: this.owner,
+      repo: this.repo,
+      base: params.baseBranch,
+      head: params.headBranch,
+    });
+
+    return {
+      ahead: data.ahead_by,
+      behind: data.behind_by,
+    };
+  }
+
   async mergePR(prNumber: number): Promise<void> {
     await this.octokit.pulls.merge({
       owner: this.owner,
@@ -228,7 +267,10 @@ export class GitHubProvider implements GitProvider {
    * Map GitHub PR data to our PullRequest type
    */
   private mapPullRequest(
-    pr: Awaited<ReturnType<typeof this.octokit.pulls.get>>['data']
+    pr:
+      | Awaited<ReturnType<typeof this.octokit.pulls.get>>['data']
+      | Awaited<ReturnType<typeof this.octokit.pulls.list>>['data'][number]
+      | Awaited<ReturnType<typeof this.octokit.pulls.create>>['data']
   ): PullRequest {
     let status: PullRequestStatus = 'open';
     if (pr.merged_at) {

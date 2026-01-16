@@ -1,6 +1,7 @@
-import { Link2, Copy, Check, ArrowLeft } from 'lucide-react';
-import { useState } from 'react';
-import { useTokens } from '@/hooks/useTokens';
+import { Link2, Copy, Check, ArrowLeft, Pencil } from 'lucide-react';
+import { useState, useEffect } from 'react';
+import { HexColorPicker } from 'react-colorful';
+import { useTokens, useUpdateToken } from '@/hooks/useTokens';
 import { useAppStore } from '@/lib/store';
 import type { ResolvedToken } from '@dscp/types';
 
@@ -10,7 +11,8 @@ interface TokenDetailProps {
 
 export function TokenDetail({ token }: TokenDetailProps) {
   const { data: tokensData } = useTokens();
-  const { setSelectedToken, viewMode } = useAppStore();
+  const { setSelectedToken, viewMode, editingSession } = useAppStore();
+  const isEditing = editingSession.isEditing;
 
   const resolvedLight = tokensData?.resolvedLight || {};
   const resolvedDark = tokensData?.resolvedDark || {};
@@ -29,12 +31,21 @@ export function TokenDetail({ token }: TokenDetailProps) {
       {/* Header */}
       <Header token={token} />
 
+      {/* Non-editing mode hint */}
+      {!isEditing && (
+        <div className="mt-4 flex items-center gap-2 rounded-lg bg-gray-100 p-3 text-sm text-gray-600">
+          <Pencil className="h-4 w-4" />
+          <span>Click "Edit Tokens" in the header to make changes</span>
+        </div>
+      )}
+
       {/* Value Display */}
       <div className="mt-6 space-y-6">
         {token.tier === 'global' ? (
           <GlobalTokenDisplay
             token={token}
             resolvedValue={resolvedLight[token.path]}
+            isEditing={isEditing}
           />
         ) : (
           <SemanticTokenDisplay
@@ -42,6 +53,7 @@ export function TokenDetail({ token }: TokenDetailProps) {
             viewMode={viewMode}
             resolvedLight={resolvedLight}
             resolvedDark={resolvedDark}
+            isEditing={isEditing}
           />
         )}
       </div>
@@ -93,20 +105,49 @@ function Header({ token }: { token: ResolvedToken }) {
 function GlobalTokenDisplay({
   token,
   resolvedValue,
+  isEditing,
 }: {
   token: ResolvedToken;
   resolvedValue: string | number | null | undefined;
+  isEditing: boolean;
 }) {
+  const updateToken = useUpdateToken();
   const displayValue = resolvedValue || token.value;
+  
+  // Local state for editing
+  const [localValue, setLocalValue] = useState(String(displayValue));
+  const [showColorPicker, setShowColorPicker] = useState(false);
+
+  // Reset local value when resolved value changes
+  useEffect(() => {
+    console.log('Display value changed:', displayValue);
+    setLocalValue(String(displayValue));
+  }, [displayValue]);
+
+  const hasChanges = localValue !== String(displayValue);
+
+  const handleSave = () => {
+    updateToken.mutate({ tokenPath: token.path, value: localValue });
+  };
+
+  const handleReset = () => {
+    setLocalValue(String(displayValue));
+    setShowColorPicker(false);
+  };
 
   return (
     <div className="rounded-lg border bg-card p-6">
       {/* Large Preview */}
       <div className="mb-6 flex justify-center">
         {token.type === 'COLOR' ? (
-          <div
-            className="h-32 w-32 rounded-xl border-4 shadow-lg"
-            style={{ backgroundColor: String(displayValue) }}
+          <button
+            onClick={() => isEditing && setShowColorPicker(!showColorPicker)}
+            disabled={!isEditing}
+            className={`h-32 w-32 rounded-xl border-4 shadow-lg transition-all ${
+              isEditing ? 'cursor-pointer hover:scale-105 hover:shadow-xl' : 'cursor-default'
+            } ${showColorPicker ? 'ring-4 ring-blue-500 ring-offset-2' : ''}`}
+            style={{ backgroundColor: localValue }}
+            title={isEditing ? 'Click to edit color' : undefined}
           />
         ) : token.type === 'FLOAT' ? (
           <div className="flex h-32 w-32 items-center justify-center rounded-xl bg-muted">
@@ -119,19 +160,172 @@ function GlobalTokenDisplay({
         )}
       </div>
 
-      {/* Value Info */}
-      <ValueDisplay label="Value" value={String(displayValue)} />
+      {/* Color Picker (when editing) */}
+      {isEditing && token.type === 'COLOR' && showColorPicker && (
+        <div className="mb-6 flex justify-center">
+          <div className="rounded-lg border bg-white p-4 shadow-lg">
+            <HexColorPicker
+              color={localValue}
+              onChange={setLocalValue}
+              style={{ width: 280 }}
+            />
+          </div>
+        </div>
+      )}
 
-      {token.type === 'COLOR' && typeof displayValue === 'string' && (
-        <div className="grid grid-cols-2 gap-4 mt-4">
+      {/* Value Input/Display */}
+      {isEditing && token.type === 'COLOR' ? (
+        <div className="space-y-4">
           <div>
-            <label className="text-xs font-medium text-muted-foreground">HEX</label>
-            <div className="mt-1 font-mono text-sm">{displayValue.toUpperCase()}</div>
+            <label className="text-xs font-medium text-muted-foreground">HEX Value</label>
+            <input
+              type="text"
+              value={localValue}
+              onChange={(e) => setLocalValue(e.target.value)}
+              className="mt-1 w-full rounded-md border bg-background px-3 py-2 font-mono focus:outline-none focus:ring-2 focus:ring-blue-500"
+              placeholder="#000000"
+            />
           </div>
-          <div>
-            <label className="text-xs font-medium text-muted-foreground">RGB</label>
-            <div className="mt-1 font-mono text-sm">{hexToRgb(displayValue)}</div>
-          </div>
+          
+          {hasChanges && (
+            <div className="flex items-center gap-2">
+              <button
+                onClick={handleSave}
+                disabled={updateToken.isPending}
+                className="rounded bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
+              >
+                {updateToken.isPending ? 'Saving...' : 'Save Changes'}
+              </button>
+              <button
+                onClick={handleReset}
+                className="rounded border px-4 py-2 text-sm hover:bg-accent"
+              >
+                Reset
+              </button>
+            </div>
+          )}
+        </div>
+      ) : isEditing && token.type === 'FLOAT' ? (
+        <EditableNumberInput
+          value={Number(displayValue) || 0}
+          tokenPath={token.path}
+        />
+      ) : isEditing && token.type === 'STRING' ? (
+        <EditableTextInput
+          value={String(displayValue)}
+          tokenPath={token.path}
+        />
+      ) : (
+        <>
+          {/* Read-only Value Display */}
+          <ValueDisplay label="Value" value={String(displayValue)} />
+
+          {token.type === 'COLOR' && typeof displayValue === 'string' && (
+            <div className="grid grid-cols-2 gap-4 mt-4">
+              <div>
+                <label className="text-xs font-medium text-muted-foreground">HEX</label>
+                <div className="mt-1 font-mono text-sm">{displayValue.toUpperCase()}</div>
+              </div>
+              <div>
+                <label className="text-xs font-medium text-muted-foreground">RGB</label>
+                <div className="mt-1 font-mono text-sm">{hexToRgb(displayValue)}</div>
+              </div>
+            </div>
+          )}
+        </>
+      )}
+    </div>
+  );
+}
+
+function EditableNumberInput({ value, tokenPath }: { value: number; tokenPath: string }) {
+  const updateToken = useUpdateToken();
+  const [localValue, setLocalValue] = useState(value);
+
+  useEffect(() => {
+    setLocalValue(value);
+  }, [value]);
+
+  const hasChanges = localValue !== value;
+
+  const handleSave = () => {
+    updateToken.mutate({ tokenPath, value: localValue });
+  };
+
+  return (
+    <div className="space-y-4">
+      <div>
+        <label className="text-xs font-medium text-muted-foreground">Number Value</label>
+        <input
+          type="number"
+          value={localValue}
+          onChange={(e) => setLocalValue(parseFloat(e.target.value) || 0)}
+          className="mt-1 w-full rounded-md border bg-background px-3 py-2 font-mono focus:outline-none focus:ring-2 focus:ring-blue-500"
+        />
+      </div>
+      
+      {hasChanges && (
+        <div className="flex items-center gap-2">
+          <button
+            onClick={handleSave}
+            disabled={updateToken.isPending}
+            className="rounded bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
+          >
+            {updateToken.isPending ? 'Saving...' : 'Save Changes'}
+          </button>
+          <button
+            onClick={() => setLocalValue(value)}
+            className="rounded border px-4 py-2 text-sm hover:bg-accent"
+          >
+            Reset
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function EditableTextInput({ value, tokenPath }: { value: string; tokenPath: string }) {
+  const updateToken = useUpdateToken();
+  const [localValue, setLocalValue] = useState(value);
+
+  useEffect(() => {
+    setLocalValue(value);
+  }, [value]);
+
+  const hasChanges = localValue !== value;
+
+  const handleSave = () => {
+    updateToken.mutate({ tokenPath, value: localValue });
+  };
+
+  return (
+    <div className="space-y-4">
+      <div>
+        <label className="text-xs font-medium text-muted-foreground">Text Value</label>
+        <input
+          type="text"
+          value={localValue}
+          onChange={(e) => setLocalValue(e.target.value)}
+          className="mt-1 w-full rounded-md border bg-background px-3 py-2 font-mono focus:outline-none focus:ring-2 focus:ring-blue-500"
+        />
+      </div>
+      
+      {hasChanges && (
+        <div className="flex items-center gap-2">
+          <button
+            onClick={handleSave}
+            disabled={updateToken.isPending}
+            className="rounded bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
+          >
+            {updateToken.isPending ? 'Saving...' : 'Save Changes'}
+          </button>
+          <button
+            onClick={() => setLocalValue(value)}
+            className="rounded border px-4 py-2 text-sm hover:bg-accent"
+          >
+            Reset
+          </button>
         </div>
       )}
     </div>
@@ -143,11 +337,13 @@ function SemanticTokenDisplay({
   viewMode,
   resolvedLight,
   resolvedDark,
+  isEditing,
 }: {
   token: ResolvedToken;
   viewMode: 'light' | 'dark' | 'both';
   resolvedLight: Record<string, string | number | null>;
   resolvedDark: Record<string, string | number | null>;
+  isEditing: boolean;
 }) {
   return (
     <div className="space-y-6">
