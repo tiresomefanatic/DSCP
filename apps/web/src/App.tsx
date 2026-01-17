@@ -2,9 +2,12 @@ import { useState } from 'react';
 import { TokenLayout } from './features/token-viewer/TokenLayout';
 import { BranchSelector } from './features/git-ui/BranchSelector';
 import { PreviewPanel } from './features/preview/PreviewPanel';
+import { EditModeBar, EditModeToggle } from './features/editing';
+import { useAppStore } from './lib/store';
 
 function App() {
   const [showPreview, setShowPreview] = useState(false);
+  const { editingSession } = useAppStore();
 
   return (
     <div className="flex h-screen flex-col">
@@ -14,7 +17,7 @@ function App() {
           <h1 className="text-lg font-semibold bg-gradient-to-r from-primary to-purple-600 bg-clip-text text-transparent">
             DSCP
           </h1>
-          <BranchSelector />
+          {!editingSession.isEditing && <BranchSelector />}
         </div>
         <div className="flex items-center gap-2">
           <button
@@ -23,8 +26,12 @@ function App() {
           >
             {showPreview ? 'Hide Preview' : 'Show Preview'}
           </button>
+          <EditModeToggle />
         </div>
       </header>
+
+      {/* Edit Mode Bar */}
+      <EditModeBar />
 
       {/* Main Content */}
       <div className="flex flex-1 overflow-hidden">
@@ -45,3 +52,4 @@ function App() {
 }
 
 export default App;
+

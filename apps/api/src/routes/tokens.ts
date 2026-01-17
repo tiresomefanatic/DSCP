@@ -137,11 +137,34 @@ router.post('/', async (req, res, next) => {
   try {
     const { branch, tokenPath, mode, value, isAlias } = updateTokenSchema.parse(req.body);
 
-    // Read current tokens
-    const content = await req.gitProvider.readFile({
-      branch,
-      path: 'tokens.json',
-    });
+    // Read current tokens with retry for newly created branches
+    // GitHub branch creation is async and files may not be immediately available
+    let content: string = '';
+    let attempts = 0;
+    const maxAttempts = 3;
+    
+    while (attempts < maxAttempts) {
+      try {
+        content = await req.gitProvider.readFile({
+          branch,
+          path: 'tokens.json',
+        });
+        break;
+      } catch (error) {
+        attempts++;
+        if (attempts >= maxAttempts) {
+          // If branch read fails, try reading from dev as fallback for new branches
+          console.log(`Failed to read from ${branch}, falling back to dev`);
+          content = await req.gitProvider.readFile({
+            branch: 'dev',
+            path: 'tokens.json',
+          });
+          break;
+        }
+        // Wait before retry (exponential backoff)
+        await new Promise(resolve => setTimeout(resolve, 500 * attempts));
+      }
+    }
 
     const tokensFile: TokensFile = JSON.parse(content);
     const parser = new TokenParser(tokensFile);
@@ -160,18 +183,93 @@ router.post('/', async (req, res, next) => {
     // Update token
     const updated = resolver.update(tokenPath, newValue, mode as TokenMode | undefined);
 
-    // Validate after update
+    // Validate after update - compare with original validation
+    // Only block if we're introducing NEW errors
+    const contentDev = await req.gitProvider.readFile({
+      branch: 'dev',
+      path: 'tokens.json',
+    });
+    const origTokensFile: TokensFile = JSON.parse(contentDev);
+    const origParser = new TokenParser(origTokensFile);
+    const origResolver = new TokenResolver(origParser.parseAll());
+    const originalValidation = origResolver.validate();
+    const originalErrors = new Set(originalValidation.errors.map(e => e.path + ':' + e.type));
+
     const validation = resolver.validate();
-    if (!validation.valid) {
+    const newErrors = validation.errors.filter(e => !originalErrors.has(e.path + ':' + e.type));
+    
+    if (newErrors.length > 0) {
+      console.error('Token validation failed with NEW errors:', JSON.stringify(newErrors, null, 2));
       return res.status(400).json({
         error: 'Validation failed',
-        errors: validation.errors,
+        errors: newErrors,
       });
     }
+    
+    if (validation.errors.length > 0) {
+      console.warn('Pre-existing validation issues (not blocking):', JSON.stringify(validation.errors, null, 2));
+    }
 
-    // Note: For full implementation, we'd need to update the original nested structure
-    // and commit back. For now, this is a simplified version.
-    const commitMessage = `Update ${tokenPath}${mode ? ` (${mode})` : ''}`;
+    // Verify that the change is valid in the resolver
+    if (!updated) {
+       return res.status(404).json({ error: 'Token not found' });
+    }
+
+    // Now update the source tokensFile object to persist the change
+    // We need to traverse the JSON structure to find the token and update its value
+    // This mirrors the logic in TokenParser but for writing
+    
+    // 1. Find the collection
+    const collection = tokensFile.collections.find(c => c.name === updated.collection);
+    if (!collection) {
+      console.error(`Collection ${updated.collection} not found in tokens file`);
+      return res.status(500).json({ error: 'Collection structure mismatch' });
+    }
+
+    // 2. Walk the path to find the variable
+    // The path in resolved token (e.g. "radius/small") corresponds to nested keys in variables
+    const pathParts = updated.path.split('/');
+    let current: any = collection.variables;
+    
+    // Navigate to the parent of the token
+    for (let i = 0; i < pathParts.length - 1; i++) {
+      const part = pathParts[i];
+      if (!current[part]) {
+        // Should not happen if resolver found it
+        console.error(`Path part ${part} not found in collection ${updated.collection}`);
+        return res.status(500).json({ error: 'Token path mismatch' });
+      }
+      current = current[part];
+    }
+    
+    // 3. Get the token variable
+    const tokenName = pathParts[pathParts.length - 1];
+    const variable = current[tokenName];
+    
+    if (!variable || !variable.values) {
+       console.error(`Variable ${tokenName} not found or invalid`);
+       return res.status(500).json({ error: 'Token variable mismatch' });
+    }
+
+    // 4. Update the value based on mode
+    if (updated.tier === 'global') {
+      variable.values.Default = newValue;
+    } else {
+      // Determine which mode key to update
+      // Logic mirrors TokenParser.createToken handling of modes
+      if (mode === 'light' || (!mode && updated.values?.light !== undefined)) {
+        variable.values.Light = newValue;
+      } 
+      if (mode === 'dark' || (!mode && updated.values?.dark !== undefined)) {
+        variable.values.Dark = newValue;
+      }
+      // If specific mode wasn't requested and it's not global, we might need to be careful.
+      // But usually the UI sends a specific mode for non-global tokens.
+      // If mode is undefined for a non-global token, it might be an ambiguous update.
+      // However, usually 'light' is the default for display if mode is missing.
+    }
+
+    const commitMessage = `Update ${tokenPath}${mode ? ` (${mode})` : ''} to ${newValue}`;
 
     const commit = await req.gitProvider.writeFile({
       branch,

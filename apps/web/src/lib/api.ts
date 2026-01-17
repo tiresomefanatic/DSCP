@@ -26,7 +26,13 @@ export async function fetchTokens(params: {
   if (params.brand) searchParams.set('brand', params.brand);
   if (params.mode) searchParams.set('mode', params.mode);
 
-  const res = await fetch(`${API_BASE}/tokens?${searchParams}`);
+  const res = await fetch(`${API_BASE}/tokens?${searchParams}`, {
+    cache: 'no-store',
+    headers: {
+      'Pragma': 'no-cache',
+      'Cache-Control': 'no-cache',
+    },
+  });
   if (!res.ok) throw new Error('Failed to fetch tokens');
   return res.json();
 }
@@ -85,6 +91,26 @@ export async function deleteBranch(name: string): Promise<void> {
     method: 'DELETE',
   });
   if (!res.ok) throw new Error('Failed to delete branch');
+}
+
+export async function compareBranch(params: {
+  branchName: string;
+  baseBranch?: string;
+}): Promise<{
+  branch: string;
+  baseBranch: string;
+  ahead: number;
+  behind: number;
+  hasChanges: boolean;
+}> {
+  const searchParams = new URLSearchParams();
+  if (params.baseBranch) searchParams.set('base', params.baseBranch);
+
+  const res = await fetch(
+    `${API_BASE}/branches/${encodeURIComponent(params.branchName)}/compare?${searchParams}`
+  );
+  if (!res.ok) throw new Error('Failed to compare branch');
+  return res.json();
 }
 
 // Pull Request API

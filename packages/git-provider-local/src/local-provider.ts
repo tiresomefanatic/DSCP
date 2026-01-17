@@ -195,6 +195,14 @@ export class LocalFileProvider implements GitProvider {
     pr.updatedAt = new Date();
   }
 
+  async getCommitsAhead(_params: {
+    baseBranch: string;
+    headBranch: string;
+  }): Promise<{ ahead: number; behind: number }> {
+    // For local provider, we don't track commits - always return 0
+    return { ahead: 0, behind: 0 };
+  }
+
   /**
    * Get the file path for a branch
    */

@@ -3,10 +3,15 @@ import { z } from 'zod';
 
 const router = Router();
 
-// Create branch schema
+// Create branch schema - default base is now 'dev' for feature branches
 const createBranchSchema = z.object({
-  baseBranch: z.string().default('main'),
+  baseBranch: z.string().default('dev'),
   newBranch: z.string(),
+});
+
+// Compare branches schema
+const compareBranchesSchema = z.object({
+  base: z.string().default('dev'),
 });
 
 /**
@@ -17,6 +22,32 @@ router.get('/', async (req, res, next) => {
   try {
     const branches = await req.gitProvider.listBranches();
     res.json({ branches });
+  } catch (error) {
+    next(error);
+  }
+});
+
+/**
+ * GET /api/branches/:name/compare
+ * Get commits ahead/behind compared to base branch
+ * Used to detect if a feature branch has changes
+ */
+router.get('/:name/compare', async (req, res, next) => {
+  try {
+    const branchName = req.params.name;
+    const { base } = compareBranchesSchema.parse(req.query);
+
+    const comparison = await req.gitProvider.getCommitsAhead({
+      baseBranch: base,
+      headBranch: branchName,
+    });
+
+    res.json({
+      branch: branchName,
+      baseBranch: base,
+      ...comparison,
+      hasChanges: comparison.ahead > 0,
+    });
   } catch (error) {
     next(error);
   }
@@ -74,3 +105,4 @@ router.delete('/:name', async (req, res, next) => {
 });
 
 export { router as branchRoutes };
+
