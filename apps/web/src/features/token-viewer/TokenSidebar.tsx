@@ -259,10 +259,9 @@ function CollectionFolder({ node, depth, searchQuery, resolvedMap }: TreeNodePro
     return (
       <button
         onClick={() => setSelectedToken(node.token!)}
-        className={`flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm transition-colors hover:bg-accent ${
-          isSelected ? 'bg-accent' : ''
+        className={`flex w-full items-center gap-2 px-2 py-1.5 text-left text-sm transition-colors hover:bg-accent/50 ${
+          isSelected ? 'bg-accent text-accent-foreground' : 'text-foreground'
         }`}
-        style={{ paddingLeft: `${depth * 12 + 12}px` }}
       >
         <TokenPreview token={node.token} resolvedValue={resolvedValue} />
         <span className="flex-1 truncate">{node.name}</span>
@@ -278,31 +277,30 @@ function CollectionFolder({ node, depth, searchQuery, resolvedMap }: TreeNodePro
     <div>
       <button
         onClick={() => setExpanded(!expanded)}
-        className={`flex w-full items-center gap-1 px-3 py-1.5 text-left text-sm transition-colors hover:bg-accent ${
-          isCollection ? 'font-semibold bg-muted/50' : 'font-medium'
+        className={`flex w-full items-center gap-1.5 px-2 py-1.5 text-left text-sm transition-colors hover:bg-accent/50 ${
+          isCollection ? 'font-medium text-foreground' : 'text-foreground'
         }`}
-        style={{ paddingLeft: `${depth * 12 + 8}px` }}
       >
         {expanded ? (
           isCollection ? (
-            <FolderOpen className="h-4 w-4 shrink-0 text-blue-500" />
+            <FolderOpen className="h-4 w-4 shrink-0 text-foreground" />
           ) : (
-            <ChevronDown className="h-4 w-4 shrink-0 text-muted-foreground" />
+            <ChevronDown className="h-4 w-4 shrink-0" />
           )
         ) : (
           isCollection ? (
-            <Folder className="h-4 w-4 shrink-0 text-blue-500" />
+            <Folder className="h-4 w-4 shrink-0 text-foreground" />
           ) : (
-            <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground" />
+            <ChevronRight className="h-4 w-4 shrink-0" />
           )
         )}
         <span className="truncate">{node.name}</span>
-        <span className="ml-auto text-xs text-muted-foreground">
+        <span className="ml-auto text-[10px] text-muted-foreground/70">
           {tokenCount}
         </span>
       </button>
       {expanded && sortedChildren.length > 0 && (
-        <div>
+        <div className="ml-[19px] border-l border-border/50 pl-1">
           {sortedChildren.map((child) => (
             <CollectionFolder
               key={child.fullPath}

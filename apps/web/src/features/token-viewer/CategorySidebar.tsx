@@ -5,13 +5,15 @@ import { useAppStore, type ActiveTab } from '@/lib/store';
 import type { ResolvedToken } from '@dscp/types';
 
 // Define which collections belong to each tab
+// Following Token Transformation Theory: Global (Primitives) → Brand (Semantic) → Core (Component)
 const TAB_COLLECTIONS: Record<ActiveTab, string[]> = {
-  primitives: ['Global'],
-  tokens: ['Brand', 'Core', 'Semantic'],
-  components: [
-    'Prominence', 'PositiveState', 'NegativeState', 'Disabled', 'Icon',
-    'Motion', 'Elevation', 'Breakpoint', 'Size', 'Typography', 'Roundness',
-    'ItemSpacing', 'InteractionState', 'PositiveNegativeToggle', 'Variant'
+  global: ['Global'],
+  brand: ['Brand'],
+  core: [
+    'Core', 'Semantic', 'Prominence', 'PositiveState', 'NegativeState',
+    'Disabled', 'Icon', 'Motion', 'Elevation', 'Breakpoint', 'Size',
+    'Typography', 'Roundness', 'ItemSpacing', 'InteractionState',
+    'PositiveNegativeToggle', 'Variant'
   ],
 };
 
@@ -46,24 +48,24 @@ export function CategorySidebar() {
     const collections = TAB_COLLECTIONS[activeTab];
     const tokens = tokensData.tokens.filter(t => collections.includes(t.collection));
 
-    // For primitives, group by first path segment (color, spacing, etc.)
-    if (activeTab === 'primitives') {
-      return buildPrimitiveCategories(tokens);
+    // For global, group by first path segment (color, spacing, etc.)
+    if (activeTab === 'global') {
+      return buildGlobalCategories(tokens);
     }
 
-    // For tokens tab, group by brand then category
-    if (activeTab === 'tokens') {
-      return buildTokenCategories(tokens, selectedBrand);
+    // For brand tab, group by brand then semantic category
+    if (activeTab === 'brand') {
+      return buildBrandCategories(tokens, selectedBrand);
     }
 
-    // For components, group by component name
-    return buildComponentCategories(tokens);
+    // For core, group by concept/component (action.button, surface.card, etc.)
+    return buildCoreCategories(tokens);
   }, [tokensData?.tokens, activeTab, selectedBrand]);
 
   return (
     <div className="flex h-full flex-col">
-      {/* Brand Selector for tokens tab */}
-      {activeTab === 'tokens' && <BrandSelector />}
+      {/* Brand Selector for brand and core tabs */}
+      {(activeTab === 'brand' || activeTab === 'core') && <BrandSelector />}
 
       {/* Categories */}
       <nav className="flex-1 overflow-auto py-2">
@@ -139,8 +141,8 @@ function CategoryItem({ category, depth, selectedCategory, onSelect }: CategoryI
   );
 }
 
-// Build primitive token categories (Global collection)
-function buildPrimitiveCategories(tokens: ResolvedToken[]): CategoryNode[] {
+// Build global (primitive) token categories
+function buildGlobalCategories(tokens: ResolvedToken[]): CategoryNode[] {
   const categoryMap = new Map<string, CategoryNode>();
 
   for (const token of tokens) {
@@ -148,12 +150,12 @@ function buildPrimitiveCategories(tokens: ResolvedToken[]): CategoryNode[] {
     if (parts.length < 1) continue;
 
     const topLevel = parts[0]; // color, spacing, etc.
-    
+
     if (!categoryMap.has(topLevel)) {
       categoryMap.set(topLevel, {
         name: topLevel,
         path: `Global/${topLevel}`,
-        children: [], // No nested children - keep sidebar flat
+        children: [],
         tokenCount: 0,
         isLeaf: true,
       });
@@ -162,11 +164,11 @@ function buildPrimitiveCategories(tokens: ResolvedToken[]): CategoryNode[] {
     categoryMap.get(topLevel)!.tokenCount++;
   }
 
-  // Sort categories
+  // Sort categories in logical order
   const order = ['color', 'spacing', 'radius', 'shadow', 'typography', 'motion', 'opacity', 'toggle'];
   return Array.from(categoryMap.values()).sort((a, b) => {
-    const aIdx = order.indexOf(a.name);
-    const bIdx = order.indexOf(b.name);
+    const aIdx = order.indexOf(a.name.toLowerCase());
+    const bIdx = order.indexOf(b.name.toLowerCase());
     if (aIdx === -1 && bIdx === -1) return a.name.localeCompare(b.name);
     if (aIdx === -1) return 1;
     if (bIdx === -1) return -1;
@@ -174,74 +176,94 @@ function buildPrimitiveCategories(tokens: ResolvedToken[]): CategoryNode[] {
   });
 }
 
-// Build token categories (Brand, Core, Semantic)
-function buildTokenCategories(tokens: ResolvedToken[], brand: string): CategoryNode[] {
+// Build brand (semantic aliasing) categories
+// Only top-level items (Color, Typography, etc.) - nested items shown in main content area
+function buildBrandCategories(tokens: ResolvedToken[], brand: string): CategoryNode[] {
   const categoryMap = new Map<string, CategoryNode>();
 
   for (const token of tokens) {
-    // Filter by brand for Brand collection
-    if (token.collection === 'Brand' && token.brand && token.brand !== brand) {
+    // Filter by selected brand
+    if (token.brand && token.brand !== brand) {
       continue;
     }
 
     const parts = token.path.split('/');
-    const topLevel = parts[0]; // color, typography, etc.
+    // Skip brand prefix if present (e.g., "acpd/color/content" -> "color/content")
+    const startIdx = (parts[0]?.toLowerCase() === 'acpd' || parts[0]?.toLowerCase() === 'eeaa') ? 1 : 0;
+    const topLevel = parts[startIdx] || parts[0]; // color, typography, etc.
 
     if (!categoryMap.has(topLevel)) {
       categoryMap.set(topLevel, {
         name: topLevel,
-        path: `${token.collection}/${topLevel}`,
+        path: `Brand/${brand}/${topLevel}`,
+        children: [], // No nested children in sidebar - they show in main content
+        tokenCount: 0,
+        isLeaf: true, // Mark as leaf so no expand/collapse
+      });
+    }
+
+    categoryMap.get(topLevel)!.tokenCount++;
+  }
+
+  // Sort with color first
+  return Array.from(categoryMap.values()).sort((a, b) => {
+    if (a.name.toLowerCase() === 'color') return -1;
+    if (b.name.toLowerCase() === 'color') return 1;
+    return a.name.localeCompare(b.name);
+  });
+}
+
+// Build core (component provenance) categories
+// Groups by concept (action, surface, input, feedback) then component (button, card, etc.)
+function buildCoreCategories(tokens: ResolvedToken[]): CategoryNode[] {
+  const conceptMap = new Map<string, CategoryNode>();
+
+  for (const token of tokens) {
+    const parts = token.path.split('/');
+    if (parts.length < 1) continue;
+
+    const concept = parts[0]; // action, surface, input, feedback, or component name
+
+    if (!conceptMap.has(concept)) {
+      conceptMap.set(concept, {
+        name: concept,
+        path: `${token.collection}/${concept}`,
         children: [],
         tokenCount: 0,
         isLeaf: false,
       });
     }
 
-    const category = categoryMap.get(topLevel)!;
-    category.tokenCount++;
+    const conceptNode = conceptMap.get(concept)!;
+    conceptNode.tokenCount++;
 
-    // Add subcategory for semantic groupings (content, surface, border, overlay)
+    // Add component as subcategory (button, card, toast, etc.)
     if (parts.length >= 2) {
-      const subName = parts[1];
-      let subChild = category.children.find(c => c.name === subName);
-      
-      if (!subChild) {
-        subChild = {
-          name: subName,
-          path: `${token.collection}/${topLevel}/${subName}`,
+      const component = parts[1];
+      let componentChild = conceptNode.children.find(c => c.name === component);
+
+      if (!componentChild) {
+        componentChild = {
+          name: component,
+          path: `${token.collection}/${concept}/${component}`,
           children: [],
           tokenCount: 0,
           isLeaf: true,
         };
-        category.children.push(subChild);
+        conceptNode.children.push(componentChild);
       }
-      subChild.tokenCount++;
+      componentChild.tokenCount++;
     }
   }
 
-  return Array.from(categoryMap.values()).sort((a, b) => a.name.localeCompare(b.name));
-}
-
-// Build component categories
-function buildComponentCategories(tokens: ResolvedToken[]): CategoryNode[] {
-  const componentMap = new Map<string, CategoryNode>();
-
-  for (const token of tokens) {
-    const parts = token.path.split('/');
-    const componentName = parts[0]; // Button, Card, Alert, etc.
-
-    if (!componentMap.has(componentName)) {
-      componentMap.set(componentName, {
-        name: componentName,
-        path: `component/${componentName}`,
-        children: [],
-        tokenCount: 0,
-        isLeaf: true,
-      });
-    }
-
-    componentMap.get(componentName)!.tokenCount++;
-  }
-
-  return Array.from(componentMap.values()).sort((a, b) => a.name.localeCompare(b.name));
+  // Sort concepts in logical order based on Token Transformation Theory
+  const conceptOrder = ['action', 'surface', 'input', 'feedback', 'navigation', 'layout'];
+  return Array.from(conceptMap.values()).sort((a, b) => {
+    const aIdx = conceptOrder.indexOf(a.name.toLowerCase());
+    const bIdx = conceptOrder.indexOf(b.name.toLowerCase());
+    if (aIdx === -1 && bIdx === -1) return a.name.localeCompare(b.name);
+    if (aIdx === -1) return 1;
+    if (bIdx === -1) return -1;
+    return aIdx - bIdx;
+  });
 }

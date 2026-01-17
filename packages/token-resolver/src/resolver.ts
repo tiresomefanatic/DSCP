@@ -43,19 +43,63 @@ export class TokenResolver {
 
   /**
    * Resolve a token value, following alias references
+   *
+   * Resolution follows Token Transformation Theory:
+   * - Global tokens: direct value from "Default" mode
+   * - Brand tokens: value from "Light"/"Dark" mode, may alias to Global
+   * - Core tokens: value from "ACPD"/"EEAA" brand, aliases to Brand → Global
+   *
    * Alias format: "CollectionName:path/to/token"
    */
-  resolve(path: string, mode: TokenMode = 'light'): string | number | null {
+  resolve(
+    path: string,
+    mode: TokenMode = 'light',
+    brand: TokenBrand = 'acpd'
+  ): string | number | null {
     const token = this.tokens.get(path);
     if (!token) return null;
 
-    let value: string | number | undefined;
+    return this.resolveToken(token, mode, brand);
+  }
 
+  /**
+   * Get the raw value from a token based on tier and mode/brand
+   */
+  private getTokenValue(
+    token: ResolvedToken,
+    mode: TokenMode,
+    brand: TokenBrand
+  ): string | number | undefined {
     if (token.tier === 'global') {
-      value = token.value;
-    } else {
-      value = token.values?.[mode];
+      return token.value;
     }
+
+    // Core/Generated tokens have brandValues (ACPD/EEAA modes)
+    if (token.brandValues) {
+      return token.brandValues[brand];
+    }
+
+    // Brand tokens have values (Light/Dark modes)
+    return token.values?.[mode];
+  }
+
+  /**
+   * Resolve a token's value following the alias chain
+   *
+   * Resolution chain for Core tokens:
+   * Core (brand=EEAA) → Brand:eeaa/color/... → Global:color/... → #hex
+   */
+  private resolveToken(
+    token: ResolvedToken,
+    mode: TokenMode,
+    brand: TokenBrand = 'acpd',
+    visited: Set<string> = new Set()
+  ): string | number | null {
+    // Prevent infinite loops
+    if (visited.has(token.id)) return null;
+    visited.add(token.id);
+
+    const value = this.getTokenValue(token, mode, brand);
 
     if (value === undefined) return null;
 
@@ -64,54 +108,14 @@ export class TokenResolver {
       const parsed = parseAlias(value);
       if (!parsed) return null;
 
-      // Find the referenced token
       const collectionTokens = this.tokensByCollection.get(parsed.collection);
       if (!collectionTokens) return null;
 
       const referencedToken = collectionTokens.get(parsed.path);
       if (!referencedToken) return null;
 
-      // Recursively resolve
-      return this.resolveToken(referencedToken, mode);
-    }
-
-    return value;
-  }
-
-  /**
-   * Resolve a token's value
-   */
-  private resolveToken(
-    token: ResolvedToken,
-    mode: TokenMode,
-    visited: Set<string> = new Set()
-  ): string | number | null {
-    // Prevent infinite loops
-    if (visited.has(token.id)) return null;
-    visited.add(token.id);
-
-    let value: string | number | undefined;
-
-    if (token.tier === 'global') {
-      value = token.value;
-    } else {
-      value = token.values?.[mode];
-    }
-
-    if (value === undefined) return null;
-
-    // Resolve alias reference
-    if (isAlias(value)) {
-      const parsed = parseAlias(value);
-      if (!parsed) return null;
-
-      const collectionTokens = this.tokensByCollection.get(parsed.collection);
-      if (!collectionTokens) return null;
-
-      const referencedToken = collectionTokens.get(parsed.path);
-      if (!referencedToken) return null;
-
-      return this.resolveToken(referencedToken, mode, visited);
+      // Continue resolution with same mode and brand
+      return this.resolveToken(referencedToken, mode, brand, visited);
     }
 
     return value;
@@ -119,6 +123,11 @@ export class TokenResolver {
 
   /**
    * Resolve all tokens for a brand and mode
+   *
+   * Includes:
+   * - Global tokens (no brand filter)
+   * - Brand tokens matching the selected brand
+   * - Core/Generated tokens (resolved using selected brand)
    */
   resolveAll(
     brand: TokenBrand,
@@ -127,9 +136,16 @@ export class TokenResolver {
     const result = new Map<string, string | number | null>();
 
     for (const token of this.tokens.values()) {
-      // Include global tokens and tokens matching the brand
-      if (token.tier === 'global' || token.brand === brand) {
-        result.set(token.path, this.resolve(token.path, mode));
+      // Include:
+      // - Global tokens (tier === 'global')
+      // - Brand tokens matching selected brand (token.brand === brand)
+      // - Core/component tokens (have brandValues, resolve using selected brand)
+      const isGlobal = token.tier === 'global';
+      const isBrandMatch = token.brand === brand;
+      const isCoreToken = !!token.brandValues;
+
+      if (isGlobal || isBrandMatch || isCoreToken) {
+        result.set(token.path, this.resolve(token.path, mode, brand));
       }
     }
 
@@ -185,16 +201,12 @@ export class TokenResolver {
   private hasCircularRef(
     token: ResolvedToken,
     mode: TokenMode,
-    visited: Set<string>
+    visited: Set<string>,
+    brand: TokenBrand = 'acpd'
   ): boolean {
     if (visited.has(token.id)) return true;
 
-    let value: string | number | undefined;
-    if (token.tier === 'global') {
-      value = token.value;
-    } else {
-      value = token.values?.[mode];
-    }
+    const value = this.getTokenValue(token, mode, brand);
 
     if (value && isAlias(value)) {
       visited.add(token.id);
@@ -207,7 +219,7 @@ export class TokenResolver {
       const referencedToken = collectionTokens.get(parsed.path);
       if (!referencedToken) return false;
 
-      return this.hasCircularRef(referencedToken, mode, visited);
+      return this.hasCircularRef(referencedToken, mode, visited, brand);
     }
 
     return false;
@@ -219,7 +231,7 @@ export class TokenResolver {
   private checkMissingReferences(token: ResolvedToken): TokenValidationError[] {
     const errors: TokenValidationError[] = [];
 
-    const checkValue = (value: string | number | undefined, mode?: TokenMode) => {
+    const checkValue = (value: string | number | undefined, context?: string) => {
       if (value && isAlias(value)) {
         const parsed = parseAlias(value);
         if (!parsed) {
@@ -235,7 +247,7 @@ export class TokenResolver {
         if (!collectionTokens || !collectionTokens.has(parsed.path)) {
           errors.push({
             path: token.path,
-            message: `Missing reference: ${value}${mode ? ` in ${mode} mode` : ''}`,
+            message: `Missing reference: ${value}${context ? ` in ${context}` : ''}`,
             type: 'missing_reference',
           });
         }
@@ -244,9 +256,14 @@ export class TokenResolver {
 
     if (token.tier === 'global') {
       checkValue(token.value);
+    } else if (token.brandValues) {
+      // Core/Generated tokens have brand-based values
+      checkValue(token.brandValues.acpd, 'ACPD brand');
+      checkValue(token.brandValues.eeaa, 'EEAA brand');
     } else {
-      checkValue(token.values?.light, 'light');
-      checkValue(token.values?.dark, 'dark');
+      // Brand tokens have theme-based values
+      checkValue(token.values?.light, 'light mode');
+      checkValue(token.values?.dark, 'dark mode');
     }
 
     return errors;
@@ -258,7 +275,8 @@ export class TokenResolver {
   update(
     path: string,
     value: string | number,
-    mode?: TokenMode
+    mode?: TokenMode,
+    brand?: TokenBrand
   ): ResolvedToken | null {
     const token = this.tokens.get(path);
     if (!token) return null;
@@ -267,7 +285,14 @@ export class TokenResolver {
 
     if (token.tier === 'global') {
       updated.value = value;
+    } else if (token.brandValues && brand) {
+      // Core/Generated tokens - update by brand
+      updated.brandValues = {
+        ...token.brandValues,
+        [brand]: value,
+      };
     } else if (mode) {
+      // Brand tokens - update by mode
       updated.values = {
         ...token.values,
         [mode]: value,

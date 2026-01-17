@@ -5,11 +5,12 @@ import { CategorySidebar } from './CategorySidebar';
 import { TokenGrid } from './TokenGrid';
 import { TokenTable } from './TokenTable';
 import { TokenDetail } from './TokenDetail';
+import { CoreTokenView } from './CoreTokenView';
 
 const tabs: { id: ActiveTab; label: string; icon: React.ReactNode }[] = [
-  { id: 'primitives', label: 'Primitives', icon: <Palette className="h-4 w-4" /> },
-  { id: 'tokens', label: 'Tokens', icon: <Layers className="h-4 w-4" /> },
-  { id: 'components', label: 'Components', icon: <Box className="h-4 w-4" /> },
+  { id: 'global', label: 'Global', icon: <Palette className="h-4 w-4" /> },
+  { id: 'brand', label: 'Brand', icon: <Layers className="h-4 w-4" /> },
+  { id: 'core', label: 'Core', icon: <Box className="h-4 w-4" /> },
 ];
 
 export function TokenLayout() {
@@ -90,10 +91,15 @@ function ModeToggle({ mode, onChange }: { mode: ViewMode; onChange: (m: ViewMode
 }
 
 function TokenContent() {
-  const { selectedCategory } = useAppStore();
+  const { selectedCategory, activeTab } = useAppStore();
+
+  // Core tab uses specialized CoreTokenView
+  if (activeTab === 'core') {
+    return <CoreTokenView />;
+  }
 
   // Determine if this category should show grid or table
-  const isColorCategory = selectedCategory?.toLowerCase().includes('color') || 
+  const isColorCategory = selectedCategory?.toLowerCase().includes('color') ||
     ['blue', 'gray', 'red', 'green', 'orange', 'white', 'black', 'mauve', 'slate', 'sage', 'olive', 'sand', 'tomato', 'ruby', 'plum', 'pink', 'purple', 'violet', 'indigo', 'cyan', 'teal', 'mint', 'lime', 'yellow', 'amber', 'brown', 'bronze', 'gold', 'sky', 'jade', 'grass', 'crimson', 'iris'].some(
       c => selectedCategory?.toLowerCase() === c
     );

@@ -29,12 +29,21 @@ export interface ResolvedToken {
    */
   value?: string | number;
   /**
-   * Values for brand/component tokens (per mode)
-   * Values can be direct or alias references starting with @
+   * Values for brand tokens (per theme mode: light/dark)
+   * Values can be direct or alias references
    */
   values?: {
     light?: string | number;
     dark?: string | number;
+  };
+  /**
+   * Values for Core/component tokens (per brand: acpd/eeaa)
+   * These reference Brand tokens which then have light/dark values
+   * Following Token Transformation Theory: Core → Brand → Global
+   */
+  brandValues?: {
+    acpd?: string | number;
+    eeaa?: string | number;
   };
   /** Collection this token belongs to */
   collection: string;

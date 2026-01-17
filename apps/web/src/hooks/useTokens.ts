@@ -1,6 +1,7 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { fetchTokens, fetchTokenTree, updateToken } from '@/lib/api';
 import { useAppStore } from '@/lib/store';
+import { isEditingDisabledBranch } from '@/lib/branch-utils';
 
 export function useTokens() {
   const { selectedBranch, selectedBrand, selectedMode } = useAppStore();
@@ -42,6 +43,9 @@ export function useUpdateToken() {
       // Only allow updates when in editing mode
       if (!editingSession.isEditing) {
         throw new Error('Cannot update tokens outside of editing mode');
+      }
+      if (isEditingDisabledBranch(selectedBranch)) {
+        throw new Error('Cannot update tokens on protected branches');
       }
 
       return updateToken({

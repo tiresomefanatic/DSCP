@@ -3,6 +3,7 @@ import { useState, useEffect } from 'react';
 import { HexColorPicker } from 'react-colorful';
 import { useTokens, useUpdateToken } from '@/hooks/useTokens';
 import { useAppStore } from '@/lib/store';
+import { isEditingDisabledBranch } from '@/lib/branch-utils';
 import type { ResolvedToken } from '@dscp/types';
 
 interface TokenDetailProps {
@@ -11,8 +12,9 @@ interface TokenDetailProps {
 
 export function TokenDetail({ token }: TokenDetailProps) {
   const { data: tokensData } = useTokens();
-  const { setSelectedToken, viewMode, editingSession } = useAppStore();
+  const { setSelectedToken, viewMode, editingSession, selectedBranch } = useAppStore();
   const isEditing = editingSession.isEditing;
+  const isEditingDisabled = isEditingDisabledBranch(selectedBranch);
 
   const resolvedLight = tokensData?.resolvedLight || {};
   const resolvedDark = tokensData?.resolvedDark || {};
@@ -35,7 +37,11 @@ export function TokenDetail({ token }: TokenDetailProps) {
       {!isEditing && (
         <div className="mt-4 flex items-center gap-2 rounded-lg bg-gray-100 p-3 text-sm text-gray-600">
           <Pencil className="h-4 w-4" />
-          <span>Click "Edit Tokens" in the header to make changes</span>
+          <span>
+            {isEditingDisabled
+              ? 'Main, Stage, and Dev are read-only. Click "Edit Tokens" to create a feature branch from dev.'
+              : 'Click "Edit Tokens" in the header to make changes'}
+          </span>
         </div>
       )}
 
@@ -337,7 +343,7 @@ function SemanticTokenDisplay({
   viewMode,
   resolvedLight,
   resolvedDark,
-  isEditing,
+  isEditing: _isEditing,
 }: {
   token: ResolvedToken;
   viewMode: 'light' | 'dark' | 'both';

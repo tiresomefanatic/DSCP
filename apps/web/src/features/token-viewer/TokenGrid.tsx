@@ -8,31 +8,44 @@ interface ColorPalette {
   tokens: ResolvedToken[];
 }
 
+// Semantic color category order for Brand tokens
+const BRAND_COLOR_ORDER = ['content', 'background', 'border', 'surface', 'overlay'];
+
 export function TokenGrid() {
   const { data: tokensData } = useTokens();
-  const { selectedCategory, viewMode, setSelectedToken } = useAppStore();
+  const { selectedCategory, viewMode, setSelectedToken, activeTab } = useAppStore();
+
+  // Check if this is a Brand color category
+  const isBrandColor = activeTab === 'brand' && selectedCategory?.toLowerCase().includes('color');
 
   // Get tokens for selected category
   const tokens = useMemo(() => {
     if (!tokensData?.tokens || !selectedCategory) return [];
-    
+
     return tokensData.tokens.filter(token => {
       const tokenPath = `${token.collection}/${token.path}`;
-      return tokenPath.startsWith(selectedCategory) || 
+      return tokenPath.startsWith(selectedCategory) ||
              `Global/${token.path}`.startsWith(selectedCategory);
     });
   }, [tokensData?.tokens, selectedCategory]);
 
-  // Group tokens by color palette (e.g., blue, gray, red)
+  // Group tokens by color palette
   const colorPalettes = useMemo(() => {
     const paletteMap = new Map<string, ResolvedToken[]>();
-    
+
     for (const token of tokens) {
       const parts = token.path.split('/');
-      // For colors: color/blue/500 -> palette is "blue"
-      // For non-colors or simple tokens: just group by first part
-      const paletteName = parts.length >= 2 ? parts[1] : parts[0];
-      
+
+      let paletteName: string;
+      if (isBrandColor) {
+        // For Brand colors: acpd/color/content/primary -> group by "content"
+        const startIdx = (parts[0]?.toLowerCase() === 'acpd' || parts[0]?.toLowerCase() === 'eeaa') ? 1 : 0;
+        paletteName = parts[startIdx + 1] || parts[startIdx] || 'other';
+      } else {
+        // For Global colors: color/blue/500 -> palette is "blue"
+        paletteName = parts.length >= 2 ? parts[1] : parts[0];
+      }
+
       if (!paletteMap.has(paletteName)) {
         paletteMap.set(paletteName, []);
       }
@@ -40,18 +53,32 @@ export function TokenGrid() {
     }
 
     // Sort palettes and tokens within
-    return Array.from(paletteMap.entries())
+    const palettes = Array.from(paletteMap.entries())
       .map(([name, tokens]) => ({
         name,
         tokens: tokens.sort((a, b) => {
           // Sort by numeric suffix if present (50, 100, 200...)
           const aNum = parseInt(a.name) || 0;
           const bNum = parseInt(b.name) || 0;
-          return aNum - bNum;
+          if (aNum !== bNum) return aNum - bNum;
+          // Fallback to alphabetical
+          return a.name.localeCompare(b.name);
         }),
-      }))
-      .sort((a, b) => a.name.localeCompare(b.name));
-  }, [tokens]);
+      }));
+
+    // Sort by semantic order for Brand, alphabetical for Global
+    if (isBrandColor) {
+      return palettes.sort((a, b) => {
+        const aIdx = BRAND_COLOR_ORDER.indexOf(a.name.toLowerCase());
+        const bIdx = BRAND_COLOR_ORDER.indexOf(b.name.toLowerCase());
+        if (aIdx === -1 && bIdx === -1) return a.name.localeCompare(b.name);
+        if (aIdx === -1) return 1;
+        if (bIdx === -1) return -1;
+        return aIdx - bIdx;
+      });
+    }
+    return palettes.sort((a, b) => a.name.localeCompare(b.name));
+  }, [tokens, isBrandColor]);
 
   const resolvedLight = tokensData?.resolvedLight || {};
   const resolvedDark = tokensData?.resolvedDark || {};
@@ -116,15 +143,15 @@ function PaletteGroups({ palettes, resolvedMap, onSelect, isDark = false }: Pale
     <div className={`space-y-8 ${isDark ? 'p-4 rounded-lg bg-gray-900' : ''}`}>
       {palettes.map((palette) => (
         <div key={palette.name}>
-          {/* Palette Name Header */}
-          <h4 className={`text-sm font-semibold mb-4 capitalize ${
-            isDark ? 'text-gray-300' : 'text-foreground'
+          {/* Palette Name Header - matches main heading style but smaller */}
+          <h3 className={`text-lg font-bold mb-4 capitalize ${
+            isDark ? 'text-gray-100' : 'text-foreground'
           }`}>
             {palette.name}
-            <span className={`ml-2 text-xs font-normal ${isDark ? 'text-gray-500' : 'text-muted-foreground'}`}>
+            <span className={`ml-2 text-sm font-normal ${isDark ? 'text-gray-500' : 'text-muted-foreground'}`}>
               {palette.tokens.length}
             </span>
-          </h4>
+          </h3>
           {/* Color Swatches */}
           <div className="flex flex-wrap gap-3">
             {palette.tokens.map((token) => {

@@ -1,7 +1,7 @@
 import { create } from 'zustand';
 import type { ResolvedToken, TokenBrand, TokenMode } from '@dscp/types';
 
-export type ActiveTab = 'primitives' | 'tokens' | 'components';
+export type ActiveTab = 'global' | 'brand' | 'core';
 export type ViewMode = 'light' | 'dark' | 'both';
 
 // Editing session state
@@ -58,7 +58,7 @@ export const useAppStore = create<AppState>((set) => ({
   selectedBrand: 'acpd',
   selectedMode: 'light',
   selectedToken: null,
-  activeTab: 'primitives',
+  activeTab: 'global',
   viewMode: 'light',
   selectedCategory: null,
   pendingChanges: new Map(),
