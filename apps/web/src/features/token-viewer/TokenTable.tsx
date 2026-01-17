@@ -1,16 +1,21 @@
-import { useMemo } from 'react';
+import { useMemo, Fragment } from 'react';
 import { useTokens } from '@/hooks/useTokens';
 import { useAppStore } from '@/lib/store';
 import type { ResolvedToken } from '@dscp/types';
 
+interface TokenGroup {
+  name: string;
+  tokens: ResolvedToken[];
+}
+
 export function TokenTable() {
   const { data: tokensData } = useTokens();
-  const { selectedCategory, viewMode, setSelectedToken } = useAppStore();
+  const { selectedCategory, viewMode, setSelectedToken, activeTab, selectedBrand } = useAppStore();
 
   // Get tokens for selected category
   const tokens = useMemo(() => {
     if (!tokensData?.tokens || !selectedCategory) return [];
-    
+
     // Handle component categories
     if (selectedCategory.startsWith('component/')) {
       const componentName = selectedCategory.split('/')[1];
@@ -22,10 +27,37 @@ export function TokenTable() {
 
     return tokensData.tokens.filter(token => {
       const tokenPath = `${token.collection}/${token.path}`;
-      return tokenPath.startsWith(selectedCategory) || 
+      return tokenPath.startsWith(selectedCategory) ||
              `Global/${token.path}`.startsWith(selectedCategory);
     });
   }, [tokensData?.tokens, selectedCategory]);
+
+  // Group tokens by subcategory for Brand tab
+  const tokenGroups = useMemo((): TokenGroup[] => {
+    if (activeTab !== 'brand' || tokens.length === 0) {
+      return [{ name: '', tokens }];
+    }
+
+    const groupMap = new Map<string, ResolvedToken[]>();
+
+    for (const token of tokens) {
+      const parts = token.path.split('/');
+      // Skip brand prefix if present (e.g., "acpd/color/content/primary" -> "content")
+      const startIdx = (parts[0]?.toLowerCase() === 'acpd' || parts[0]?.toLowerCase() === 'eeaa') ? 1 : 0;
+      // Get the subcategory (content, background, border, display, heading, etc.)
+      const subCategory = parts[startIdx + 1] || 'other';
+
+      if (!groupMap.has(subCategory)) {
+        groupMap.set(subCategory, []);
+      }
+      groupMap.get(subCategory)!.push(token);
+    }
+
+    // Sort groups and return
+    return Array.from(groupMap.entries())
+      .map(([name, tokens]) => ({ name, tokens }))
+      .sort((a, b) => a.name.localeCompare(b.name));
+  }, [tokens, activeTab]);
 
   const resolvedLight = tokensData?.resolvedLight || {};
   const resolvedDark = tokensData?.resolvedDark || {};
@@ -38,6 +70,9 @@ export function TokenTable() {
     );
   }
 
+  // Calculate column count for colSpan
+  const colCount = 2 + (viewMode === 'both' ? 2 : 1);
+
   return (
     <div className="p-6">
       {/* Category Header */}
@@ -46,7 +81,7 @@ export function TokenTable() {
           {selectedCategory?.split('/').pop() || 'Tokens'}
         </h2>
         <p className="text-sm text-muted-foreground mt-1">
-          {tokens.length} tokens
+          {tokens.length} tokens{activeTab === 'brand' && tokenGroups.length > 1 && ` in ${tokenGroups.length} groups`}
         </p>
       </div>
 
@@ -74,15 +109,32 @@ export function TokenTable() {
             </tr>
           </thead>
           <tbody className="divide-y">
-            {tokens.map((token) => (
-              <TokenRow
-                key={token.path}
-                token={token}
-                viewMode={viewMode}
-                resolvedLight={resolvedLight}
-                resolvedDark={resolvedDark}
-                onSelect={setSelectedToken}
-              />
+            {tokenGroups.map((group) => (
+              <Fragment key={group.name || 'default'}>
+                {/* Group header for Brand tab with multiple groups - matches main heading style but smaller */}
+                {group.name && tokenGroups.length > 1 && (
+                  <tr className="bg-muted/30">
+                    <td colSpan={colCount} className="px-4 py-3">
+                      <span className="text-lg font-bold capitalize text-foreground">
+                        {group.name}
+                      </span>
+                      <span className="ml-2 text-sm font-normal text-muted-foreground">
+                        {group.tokens.length}
+                      </span>
+                    </td>
+                  </tr>
+                )}
+                {group.tokens.map((token) => (
+                  <TokenRow
+                    key={token.path}
+                    token={token}
+                    viewMode={viewMode}
+                    resolvedLight={resolvedLight}
+                    resolvedDark={resolvedDark}
+                    onSelect={setSelectedToken}
+                  />
+                ))}
+              </Fragment>
             ))}
           </tbody>
         </table>

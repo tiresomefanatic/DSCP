@@ -3,6 +3,7 @@ import { HexColorPicker } from 'react-colorful';
 import { Link2, Pencil } from 'lucide-react';
 import { useTokens, useUpdateToken } from '@/hooks/useTokens';
 import { useAppStore } from '@/lib/store';
+import { isEditingDisabledBranch } from '@/lib/branch-utils';
 import type { ResolvedToken, TokenMode } from '@dscp/types';
 
 interface TokenEditorProps {
@@ -13,8 +14,9 @@ interface TokenEditorProps {
 export function TokenEditor({ token, mode }: TokenEditorProps) {
   const { data: tokensData } = useTokens();
   const updateToken = useUpdateToken();
-  const { editingSession } = useAppStore();
+  const { editingSession, selectedBranch } = useAppStore();
   const isEditing = editingSession.isEditing;
+  const isEditingDisabled = isEditingDisabledBranch(selectedBranch);
 
   // Get the raw value (may be an alias like "Global:color/blue/500")
   const rawValue = token.tier === 'global' ? token.value : token.values?.[mode];
@@ -31,7 +33,11 @@ export function TokenEditor({ token, mode }: TokenEditorProps) {
       {!isEditing && (
         <div className="flex items-center gap-2 rounded-lg bg-gray-100 p-3 text-sm text-gray-600">
           <Pencil className="h-4 w-4" />
-          <span>Click "Edit Tokens" in the header to make changes</span>
+          <span>
+            {isEditingDisabled
+              ? 'Main, Stage, and Dev are read-only. Click "Edit Tokens" to create a feature branch from dev.'
+              : 'Click "Edit Tokens" in the header to make changes'}
+          </span>
         </div>
       )}
       {/* Header */}

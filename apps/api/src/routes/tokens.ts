@@ -7,7 +7,7 @@ const router = Router();
 
 // Query params schema
 const listTokensSchema = z.object({
-  branch: z.string().default('main'),
+  branch: z.string().default('dev'),
   brand: z.enum(['acpd', 'eeaa']).optional(),
   mode: z.enum(['light', 'dark']).default('light'),
 });

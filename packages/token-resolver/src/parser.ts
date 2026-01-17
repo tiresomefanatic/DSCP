@@ -102,7 +102,19 @@ export class TokenParser {
   }
 
   /**
+   * Check if modes are brand-based (ACPD/EEAA) vs theme-based (Light/Dark)
+   */
+  private isBrandMode(modes: string[]): boolean {
+    return modes.some(m => m.toUpperCase() === 'ACPD' || m.toUpperCase() === 'EEAA');
+  }
+
+  /**
    * Create a resolved token from a variable
+   *
+   * Token value handling follows Token Transformation Theory:
+   * - Global: single "Default" mode value
+   * - Brand: "Light"/"Dark" theme mode values
+   * - Core/Generated: "ACPD"/"EEAA" brand mode values (reference Brand tokens)
    */
   private createToken(
     pathParts: string[],
@@ -114,7 +126,7 @@ export class TokenParser {
     const path = pathParts.join('/');
     const name = pathParts[pathParts.length - 1] || path;
 
-    // Extract brand from path for brand/component tokens
+    // Extract brand from path for brand tokens (e.g., acpd/color/content/primary)
     let brand: TokenBrand | null = null;
     let category = pathParts[0] || 'other';
 
@@ -140,12 +152,19 @@ export class TokenParser {
       collection: collectionName,
     };
 
-    // Handle values based on modes
+    // Handle values based on mode type
     if (modes.length === 1 && modes[0] === 'Default') {
       // Global tokens - single value
       token.value = variable.values['Default'];
+    } else if (this.isBrandMode(modes)) {
+      // Core/Generated tokens - brand-based values (ACPD/EEAA)
+      // These reference Brand tokens which then have light/dark values
+      token.brandValues = {
+        acpd: variable.values['ACPD'],
+        eeaa: variable.values['EEAA'],
+      };
     } else {
-      // Brand/component tokens - light/dark values
+      // Brand tokens - theme-based values (Light/Dark)
       token.values = {
         light: variable.values['Light'],
         dark: variable.values['Dark'],

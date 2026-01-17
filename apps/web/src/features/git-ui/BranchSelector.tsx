@@ -5,6 +5,8 @@ import * as Dialog from '@radix-ui/react-dialog';
 import { useBranches, useCreateBranch } from '@/hooks/useBranches';
 import { useAppStore } from '@/lib/store';
 
+const APP_DEFAULT_BRANCH = 'dev';
+
 export function BranchSelector() {
   const { selectedBranch, setBranch } = useAppStore();
   const { data, isLoading } = useBranches();
@@ -31,21 +33,25 @@ export function BranchSelector() {
               </div>
             ) : (
               <>
-                {data?.branches.map((branch) => (
-                  <DropdownMenu.Item
-                    key={branch.name}
-                    className="flex cursor-pointer items-center gap-2 rounded px-2 py-1.5 text-sm outline-none hover:bg-accent"
-                    onSelect={() => setBranch(branch.name)}
-                  >
-                    <GitBranch className="h-4 w-4" />
-                    <span className="flex-1">{branch.name}</span>
-                    {branch.isDefault && (
-                      <span className="text-xs text-muted-foreground">
-                        default
-                      </span>
-                    )}
-                  </DropdownMenu.Item>
-                ))}
+                {data?.branches.map((branch) => {
+                  const isAppDefault = branch.name === APP_DEFAULT_BRANCH;
+
+                  return (
+                    <DropdownMenu.Item
+                      key={branch.name}
+                      className="flex cursor-pointer items-center gap-2 rounded px-2 py-1.5 text-sm outline-none hover:bg-accent"
+                      onSelect={() => setBranch(branch.name)}
+                    >
+                      <GitBranch className="h-4 w-4" />
+                      <span className="flex-1">{branch.name}</span>
+                      {isAppDefault && (
+                        <span className="text-xs text-muted-foreground">
+                          default
+                        </span>
+                      )}
+                    </DropdownMenu.Item>
+                  );
+                })}
                 <DropdownMenu.Separator className="my-1 h-px bg-border" />
                 <DropdownMenu.Item
                   className="flex cursor-pointer items-center gap-2 rounded px-2 py-1.5 text-sm outline-none hover:bg-accent"
